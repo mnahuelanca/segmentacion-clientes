@@ -41,9 +41,9 @@ def train_model(X, y):
     rf.fit(X_train, y_train)
     return rf, X_train, X_test, y_train, y_test
 
-def compute_learning_curve(estimator, X, y):
+def compute_learning_curve(_estimator, X, y):
     return learning_curve(
-        estimator,
+        _estimator,
         X,
         y,
         cv=5,
@@ -52,8 +52,8 @@ def compute_learning_curve(estimator, X, y):
         train_sizes=np.linspace(0.2, 1.0, 6),
     )
 
-def compute_cv_scores(estimator, X, y):
-    return cross_val_score(estimator, X, y, cv=5, scoring="accuracy", n_jobs=-1)
+def compute_cv_scores(_estimator, X, y):
+    return cross_val_score(_estimator, X, y, cv=5, scoring="accuracy", n_jobs=-1)
 
 
 def plot_feature_importance(model, columns):
