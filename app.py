@@ -62,7 +62,8 @@ def plot_feature_importance(model, columns):
     df_importance = df_importance.sort_values(by="importance", ascending=False).head(15)
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    sns.barplot(x="importance", y="feature", data=df_importance, palette="viridis", ax=ax)
+    ax.barh(df_importance["feature"], df_importance["importance"], color=sns.color_palette("viridis", len(df_importance)))
+    ax.invert_yaxis()
     ax.set_title("Importancia de las variables")
     ax.set_xlabel("Importancia relativa")
     ax.set_ylabel("Variable")
@@ -84,7 +85,7 @@ def plot_f1_by_segment(report, labels):
     f1_scores = [report[label]["f1-score"] for label in labels]
     fig, ax = plt.subplots(figsize=(8, 5))
     colors = ["#e74c3c", "#c0392b", "#95a5a6", "#2ecc71"][: len(labels)]
-    sns.barplot(x=labels, y=f1_scores, palette=colors, ax=ax)
+    ax.bar(labels, f1_scores, color=colors)
     ax.set_ylim(0, 1)
     ax.set_title("F1-Score por segmento")
     ax.set_ylabel("F1-Score")
