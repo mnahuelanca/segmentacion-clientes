@@ -46,14 +46,14 @@ def compute_learning_curve(_estimator, X, y):
         _estimator,
         X,
         y,
-        cv=5,
+        cv=3,
         scoring="accuracy",
-        n_jobs=-1,
-        train_sizes=np.linspace(0.2, 1.0, 6),
+        n_jobs=1,
+        train_sizes=np.linspace(0.2, 1.0, 4),
     )
 
 def compute_cv_scores(_estimator, X, y):
-    return cross_val_score(_estimator, X, y, cv=5, scoring="accuracy", n_jobs=-1)
+    return cross_val_score(_estimator, X, y, cv=3, scoring="accuracy", n_jobs=1)
 
 
 def plot_feature_importance(model, columns):
@@ -149,8 +149,18 @@ def main():
     accuracy_test = accuracy_score(y_test, y_pred)
     accuracy_train = accuracy_score(y_train, rf.predict(X_train))
     f1_macro = f1_score(y_test, y_pred, average="macro")
-    cv_scores = compute_cv_scores(rf, X, y)
-    learning_results = compute_learning_curve(rf, X, y)
+
+    show_advanced = st.sidebar.checkbox(
+        "Calcular métricas avanzadas (puede tardar)", value=False
+    )
+    st.sidebar.write("Validación cruzada y curva de aprendizaje usan menos recursos en Cloud.")
+
+    cv_scores = None
+    learning_results = None
+    if show_advanced:
+        with st.spinner("Calculando validación cruzada y curva de aprendizaje..."):
+            cv_scores = compute_cv_scores(rf, X, y)
+            learning_results = compute_learning_curve(rf, X, y)
 
     report = classification_report(y_test, y_pred, target_names=label_encoder.classes_, output_dict=True)
     conf_mat = confusion_matrix(y_test, y_pred)
@@ -167,7 +177,10 @@ def main():
     col1.metric("Accuracy prueba", f"{accuracy_test:.1%}")
     col2.metric("Accuracy entrenamiento", f"{accuracy_train:.1%}")
     col3.metric("F1 Macro", f"{f1_macro:.1%}")
-    col4.metric("CV promedio", f"{cv_scores.mean():.1%}", delta=f"±{cv_scores.std():.2%}")
+    if cv_scores is not None:
+        col4.metric("CV promedio", f"{cv_scores.mean():.1%}", delta=f"±{cv_scores.std():.2%}")
+    else:
+        col4.metric("CV promedio", "--", delta="activa métricas avanzadas")
 
     st.markdown("---")
     st.markdown("## Gráficos de apoyo")
@@ -185,13 +198,19 @@ def main():
     st.pyplot(plot_roc_curves(y_test, y_proba, labels))
 
     st.subheader("Validación cruzada y estabilidad")
-    st.write("Accuracy por fold (5-fold CV):")
-    st.write([float(f"{s:.4f}") for s in cv_scores])
-    st.line_chart(pd.DataFrame({"Accuracy": cv_scores}))
+    if cv_scores is not None:
+        st.write("Accuracy por fold (3-fold CV):")
+        st.write([float(f"{s:.4f}") for s in cv_scores])
+        st.line_chart(pd.DataFrame({"Accuracy": cv_scores}))
+    else:
+        st.info("Activa 'Calcular métricas avanzadas' en la barra lateral para ver CV y aprendizaje.")
 
     st.subheader("Curva de aprendizaje")
-    train_sizes, train_scores, test_scores = learning_results
-    st.pyplot(plot_learning_curve(train_sizes, train_scores, test_scores))
+    if learning_results is not None:
+        train_sizes, train_scores, test_scores = learning_results
+        st.pyplot(plot_learning_curve(train_sizes, train_scores, test_scores))
+    else:
+        st.info("Activa 'Calcular métricas avanzadas' en la barra lateral para generar la curva de aprendizaje.")
 
     st.markdown("---")
     st.subheader("Diagnóstico rápido")
