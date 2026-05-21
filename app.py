@@ -35,14 +35,12 @@ def prepare_data(df):
 
     return X_encoded, y_encoded, label_encoder
 
-@st.cache_resource
 def train_model(X, y):
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     rf = RandomForestClassifier(n_estimators=100, random_state=42)
     rf.fit(X_train, y_train)
     return rf, X_train, X_test, y_train, y_test
 
-@st.cache_data
 def compute_learning_curve(estimator, X, y):
     return learning_curve(
         estimator,
@@ -54,7 +52,6 @@ def compute_learning_curve(estimator, X, y):
         train_sizes=np.linspace(0.2, 1.0, 6),
     )
 
-@st.cache_data
 def compute_cv_scores(estimator, X, y):
     return cross_val_score(estimator, X, y, cv=5, scoring="accuracy", n_jobs=-1)
 
