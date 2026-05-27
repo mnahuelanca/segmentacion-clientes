@@ -4,19 +4,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from sklearn.preprocessing import LabelEncoder, label_binarize
-from sklearn.model_selection import train_test_split, cross_val_score, learning_curve
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_curve, auc, f1_score
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
+
 
 st.set_page_config(page_title="Segmentación de Clientes", layout="wide")
-st.title("Segmentación de Clientes")
-
 sns.set_style("whitegrid")
+
 
 @st.cache_data
 def load_data():
     return pd.read_csv("dfSegmentado.csv")
+
 
 @st.cache_data
 def prepare_data(df):
@@ -35,107 +36,151 @@ def prepare_data(df):
 
     return X_encoded, y_encoded, label_encoder
 
+
+@st.cache_resource
 def train_model(X, y):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    rf = RandomForestClassifier(n_estimators=100, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+    rf = RandomForestClassifier(
+        n_estimators=200,
+        max_depth=15,
+        min_samples_leaf=10,
+        min_samples_split=2,
+        random_state=42,
+    )
     rf.fit(X_train, y_train)
     return rf, X_train, X_test, y_train, y_test
 
-def compute_learning_curve(_estimator, X, y):
-    return learning_curve(
-        _estimator,
-        X,
-        y,
-        cv=3,
-        scoring="accuracy",
-        n_jobs=1,
-        train_sizes=np.linspace(0.2, 1.0, 4),
-    )
 
-def compute_cv_scores(_estimator, X, y):
-    return cross_val_score(_estimator, X, y, cv=3, scoring="accuracy", n_jobs=1)
+def encode_customer(customer, model_columns):
+    row = pd.DataFrame(0, index=[0], columns=model_columns)
+    row.loc[0, "Estado_Civil"] = 1 if customer["Estado_Civil"] == "Yes" else 0
+    row.loc[0, "Edad"] = customer["Edad"]
+    row.loc[0, "Graduado"] = 1 if customer["Graduado"] == "Yes" else 0
+    row.loc[0, "Experiencia_Laboral"] = customer["Experiencia_Laboral"]
+    row.loc[0, "Puntuacion_Gasto"] = {"Low": 0, "Average": 1, "High": 2}[customer["Puntuacion_Gasto"]]
+    row.loc[0, "Tamano_Familiar"] = customer["Tamano_Familiar"]
+
+    gender_column = f"Genero_{customer['Genero']}"
+    profession_column = f"Profesion_{customer['Profesion']}"
+    if gender_column in row.columns:
+        row.loc[0, gender_column] = 1
+    if profession_column in row.columns:
+        row.loc[0, profession_column] = 1
+
+    return row
 
 
 def plot_feature_importance(model, columns):
-    importances = model.feature_importances_
-    df_importance = pd.DataFrame({"feature": columns, "importance": importances})
-    df_importance = df_importance.sort_values(by="importance", ascending=False).head(15)
+    importance = (
+        pd.DataFrame({"Variable": columns, "Importancia": model.feature_importances_})
+        .sort_values("Importancia", ascending=False)
+        .head(10)
+    )
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.barh(df_importance["feature"], df_importance["importance"], color=sns.color_palette("viridis", len(df_importance)))
+    fig, ax = plt.subplots(figsize=(5.8, 3.6))
+    colors = sns.color_palette("crest", len(importance))
+    ax.barh(importance["Variable"], importance["Importancia"], color=colors)
     ax.invert_yaxis()
-    ax.set_title("Importancia de las variables")
     ax.set_xlabel("Importancia relativa")
-    ax.set_ylabel("Variable")
+    ax.set_ylabel("")
+    ax.set_title("Variables que más influyen en el modelo final")
     plt.tight_layout()
     return fig
 
 
 def plot_confusion_matrix(confusion, labels):
-    fig, ax = plt.subplots(figsize=(8, 6))
-    sns.heatmap(confusion, annot=True, fmt="d", cmap="Blues", xticklabels=labels, yticklabels=labels, ax=ax)
-    ax.set_title("Matriz de confusión")
-    ax.set_xlabel("Predicción del modelo")
+    fig, ax = plt.subplots(figsize=(3.8, 2.9))
+    sns.heatmap(
+        confusion,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        xticklabels=labels,
+        yticklabels=labels,
+        ax=ax,
+    )
+    ax.set_xlabel("Predicción")
     ax.set_ylabel("Segmento real")
+    ax.set_title("Matriz de confusión")
+    ax.tick_params(axis="both", labelsize=9)
     plt.tight_layout()
     return fig
 
 
 def plot_f1_by_segment(report, labels):
-    f1_scores = [report[label]["f1-score"] for label in labels]
-    fig, ax = plt.subplots(figsize=(8, 5))
-    colors = ["#e74c3c", "#c0392b", "#95a5a6", "#2ecc71"][: len(labels)]
-    ax.bar(labels, f1_scores, color=colors)
+    f1_scores = pd.DataFrame(
+        {"Segmento": labels, "F1": [report[label]["f1-score"] for label in labels]}
+    )
+
+    fig, ax = plt.subplots(figsize=(4.8, 3.1))
+    ax.bar(f1_scores["Segmento"], f1_scores["F1"], color=["#4c78a8", "#f58518", "#54a24b", "#e45756"])
     ax.set_ylim(0, 1)
-    ax.set_title("F1-Score por segmento")
-    ax.set_ylabel("F1-Score")
     ax.set_xlabel("Segmento")
-    for i, score in enumerate(f1_scores):
-        ax.text(i, score + 0.02, f"{score:.3f}", ha="center", va="bottom", fontweight="bold")
+    ax.set_ylabel("F1-score")
+    ax.set_title("Precisión por segmento")
+    for index, row in f1_scores.iterrows():
+        ax.text(index, row["F1"] + 0.02, f"{row['F1']:.2f}", ha="center", fontweight="bold")
     plt.tight_layout()
     return fig
 
 
-def plot_roc_curves(y_test, y_score, labels):
-    y_test_bin = label_binarize(y_test, classes=np.arange(len(labels)))
-    n_classes = y_test_bin.shape[1]
+def plot_segment_distribution(df):
+    segment_counts = df["Segmento"].value_counts().sort_index()
 
-    fig, ax = plt.subplots(figsize=(9, 7))
-    colors = sns.color_palette("tab10", n_classes)
-
-    for i, color in enumerate(colors[:n_classes]):
-        fpr, tpr, _ = roc_curve(y_test_bin[:, i], y_score[:, i])
-        ax.plot(fpr, tpr, color=color, lw=2, label=f"{labels[i]} (AUC={auc(fpr, tpr):.2f})")
-
-    fpr_micro, tpr_micro, _ = roc_curve(y_test_bin.ravel(), y_score.ravel())
-    ax.plot(fpr_micro, tpr_micro, color="deeppink", linestyle="--", linewidth=2, label=f"Micro-average (AUC={auc(fpr_micro, tpr_micro):.2f})")
-
-    ax.plot([0, 1], [0, 1], "k--", lw=1)
-    ax.set_xlim([0.0, 1.0])
-    ax.set_ylim([0.0, 1.05])
-    ax.set_xlabel("Tasa de falsos positivos")
-    ax.set_ylabel("Tasa de verdaderos positivos")
-    ax.set_title("Curvas ROC multiclase")
-    ax.legend(loc="lower right", fontsize="small")
-    ax.grid(alpha=0.3)
+    fig, ax = plt.subplots(figsize=(4.6, 3.1))
+    ax.bar(segment_counts.index, segment_counts.values, color=["#4c78a8", "#f58518", "#54a24b", "#e45756"])
+    ax.set_xlabel("Segmento")
+    ax.set_ylabel("Clientes")
+    ax.set_title("Cantidad de clientes por segmento")
+    for index, value in enumerate(segment_counts.values):
+        ax.text(index, value + 25, str(value), ha="center", fontweight="bold", fontsize=9)
     plt.tight_layout()
     return fig
 
 
-def plot_learning_curve(train_sizes, train_scores, test_scores):
-    train_mean = np.mean(train_scores, axis=1)
-    test_mean = np.mean(test_scores, axis=1)
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(train_sizes, train_mean, marker="o", color="#e74c3c", label="Accuracy entrenamiento")
-    ax.plot(train_sizes, test_mean, marker="o", color="#2ecc71", label="Accuracy validación")
-    ax.set_title("Curva de aprendizaje")
-    ax.set_xlabel("Tamaño de entrenamiento")
-    ax.set_ylabel("Accuracy")
-    ax.set_ylim(0.3, 1.0)
-    ax.legend()
-    ax.grid(True, linestyle="--", alpha=0.6)
+def plot_age_by_segment(df):
+    age_summary = df.groupby("Segmento", as_index=False)["Edad"].mean()
+
+    fig, ax = plt.subplots(figsize=(4.6, 3.1))
+    ax.bar(age_summary["Segmento"], age_summary["Edad"], color=["#4c78a8", "#f58518", "#54a24b", "#e45756"])
+    ax.set_xlabel("Segmento")
+    ax.set_ylabel("Edad promedio")
+    ax.set_title("Edad promedio por segmento")
+    for index, row in age_summary.iterrows():
+        ax.text(index, row["Edad"] + 0.8, f"{row['Edad']:.1f}", ha="center", fontweight="bold", fontsize=9)
     plt.tight_layout()
     return fig
+
+
+def plot_spending_by_segment(df):
+    spending_order = ["Low", "Average", "High"]
+    spending_labels = {"Low": "Baja", "Average": "Media", "High": "Alta"}
+    spending_share = pd.crosstab(df["Segmento"], df["Puntuacion_Gasto"], normalize="index")
+    spending_share = spending_share.reindex(columns=spending_order, fill_value=0)
+
+    fig, ax = plt.subplots(figsize=(5.1, 3.2))
+    bottom = np.zeros(len(spending_share))
+    colors = ["#6baed6", "#fdae6b", "#74c476"]
+    for spending, color in zip(spending_order, colors):
+        values = spending_share[spending].values
+        ax.bar(spending_share.index, values, bottom=bottom, color=color, label=spending_labels[spending])
+        bottom += values
+
+    ax.set_xlabel("Segmento")
+    ax.set_ylabel("Proporción")
+    ax.set_title("Puntuación de gasto por segmento")
+    ax.legend(title="Gasto", fontsize=8, title_fontsize=8, loc="upper right")
+    ax.set_ylim(0, 1)
+    plt.tight_layout()
+    return fig
+
+
+def show_compact_chart(fig):
+    left, center, right = st.columns([0.18, 0.64, 0.18])
+    with center:
+        st.pyplot(fig, use_container_width=False)
 
 
 def main():
@@ -143,86 +188,116 @@ def main():
     X, y, label_encoder = prepare_data(df)
     rf, X_train, X_test, y_train, y_test = train_model(X, y)
 
+    labels = list(label_encoder.classes_)
     y_pred = rf.predict(X_test)
-    y_proba = rf.predict_proba(X_test)
-
     accuracy_test = accuracy_score(y_test, y_pred)
     accuracy_train = accuracy_score(y_train, rf.predict(X_train))
     f1_macro = f1_score(y_test, y_pred, average="macro")
-
-    show_advanced = st.sidebar.checkbox(
-        "Calcular métricas avanzadas (puede tardar)", value=False
-    )
-    st.sidebar.write("Validación cruzada y curva de aprendizaje usan menos recursos en Cloud.")
-
-    cv_scores = None
-    learning_results = None
-    if show_advanced:
-        with st.spinner("Calculando validación cruzada y curva de aprendizaje..."):
-            cv_scores = compute_cv_scores(rf, X, y)
-            learning_results = compute_learning_curve(rf, X, y)
-
-    report = classification_report(y_test, y_pred, target_names=label_encoder.classes_, output_dict=True)
+    report = classification_report(y_test, y_pred, target_names=labels, output_dict=True)
     conf_mat = confusion_matrix(y_test, y_pred)
-    labels = list(label_encoder.classes_)
 
-    st.markdown("## Resumen ejecutivo")
-    with open("resumen.md", "r", encoding="utf-8") as f:
-        st.markdown(f.read())
+    st.title("Segmentación de Clientes")
+    st.caption("Modelo final: Random Forest optimizado para predecir el segmento A, B, C o D de un cliente.")
 
-    st.markdown("---")
-    st.markdown("## Métricas clave")
+    metric_1, metric_2, metric_3, metric_4 = st.columns(4)
+    metric_1.metric("Accuracy prueba", f"{accuracy_test:.1%}")
+    metric_2.metric("F1 macro", f"{f1_macro:.1%}")
+    metric_3.metric("Accuracy entrenamiento", f"{accuracy_train:.1%}")
+    metric_4.metric("Clientes analizados", f"{len(df):,}".replace(",", "."))
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Accuracy prueba", f"{accuracy_test:.1%}")
-    col2.metric("Accuracy entrenamiento", f"{accuracy_train:.1%}")
-    col3.metric("F1 Macro", f"{f1_macro:.1%}")
-    if cv_scores is not None:
-        col4.metric("CV promedio", f"{cv_scores.mean():.1%}", delta=f"±{cv_scores.std():.2%}")
-    else:
-        col4.metric("CV promedio", "--", delta="activa métricas avanzadas")
+    st.markdown("### Usar el modelo final")
+    form_col, result_col = st.columns([1.1, 0.9], gap="large")
 
-    st.markdown("---")
-    st.markdown("## Gráficos de apoyo")
+    with form_col:
+        st.markdown("Ajustá el perfil del cliente y observá cómo cambia la predicción.")
+        slider_col_1, slider_col_2, slider_col_3 = st.columns(3)
+        edad = slider_col_1.slider("Edad", int(df["Edad"].min()), int(df["Edad"].max()), int(df["Edad"].median()))
+        experiencia = slider_col_2.slider(
+            "Experiencia laboral",
+            int(df["Experiencia_Laboral"].min()),
+            int(df["Experiencia_Laboral"].max()),
+            int(df["Experiencia_Laboral"].median()),
+        )
+        familia = slider_col_3.slider(
+            "Tamaño familiar",
+            int(df["Tamano_Familiar"].min()),
+            int(df["Tamano_Familiar"].max()),
+            int(df["Tamano_Familiar"].median()),
+        )
 
-    st.subheader("Importancia de las variables")
-    st.pyplot(plot_feature_importance(rf, X.columns))
+        input_col_1, input_col_2, input_col_3 = st.columns(3)
+        genero = input_col_1.selectbox("Género", sorted(df["Genero"].unique()))
+        estado_civil = input_col_2.selectbox("Estado civil", ["No", "Yes"], format_func=lambda x: "Casado/a" if x == "Yes" else "No casado/a")
+        graduado = input_col_3.selectbox("Graduado", ["No", "Yes"], format_func=lambda x: "Sí" if x == "Yes" else "No")
 
-    st.subheader("Matriz de confusión")
-    st.pyplot(plot_confusion_matrix(conf_mat, labels))
+        input_col_4, input_col_5 = st.columns([1.2, 0.8])
+        profesion = input_col_4.selectbox("Profesión", sorted(df["Profesion"].unique()))
+        gasto = input_col_5.select_slider(
+            "Puntuación de gasto",
+            options=["Low", "Average", "High"],
+            value="Low",
+            format_func={"Low": "Baja", "Average": "Media", "High": "Alta"}.get,
+        )
 
-    st.subheader("F1-Score por segmento")
-    st.pyplot(plot_f1_by_segment(report, labels))
+    customer = {
+        "Genero": genero,
+        "Estado_Civil": estado_civil,
+        "Edad": edad,
+        "Graduado": graduado,
+        "Profesion": profesion,
+        "Experiencia_Laboral": float(experiencia),
+        "Puntuacion_Gasto": gasto,
+        "Tamano_Familiar": float(familia),
+    }
+    encoded_customer = encode_customer(customer, X.columns)
+    predicted_code = rf.predict(encoded_customer)[0]
+    predicted_segment = label_encoder.inverse_transform([predicted_code])[0]
+    probabilities = pd.DataFrame(
+        {
+            "Segmento": labels,
+            "Probabilidad": rf.predict_proba(encoded_customer)[0],
+        }
+    ).sort_values("Probabilidad", ascending=False)
 
-    st.subheader("Curvas ROC multiclase")
-    st.pyplot(plot_roc_curves(y_test, y_proba, labels))
+    with result_col:
+        st.markdown("Predicción")
+        st.metric("Segmento estimado", predicted_segment)
+        st.progress(float(probabilities.iloc[0]["Probabilidad"]))
+        st.caption(f"Confianza del segmento principal: {probabilities.iloc[0]['Probabilidad']:.1%}")
+        st.bar_chart(probabilities.set_index("Segmento"))
 
-    st.subheader("Validación cruzada y estabilidad")
-    if cv_scores is not None:
-        st.write("Accuracy por fold (3-fold CV):")
-        st.write([float(f"{s:.4f}") for s in cv_scores])
-        st.line_chart(pd.DataFrame({"Accuracy": cv_scores}))
-    else:
-        st.info("Activa 'Calcular métricas avanzadas' en la barra lateral para ver CV y aprendizaje.")
-
-    st.subheader("Curva de aprendizaje")
-    if learning_results is not None:
-        train_sizes, train_scores, test_scores = learning_results
-        st.pyplot(plot_learning_curve(train_sizes, train_scores, test_scores))
-    else:
-        st.info("Activa 'Calcular métricas avanzadas' en la barra lateral para generar la curva de aprendizaje.")
-
-    st.markdown("---")
-    st.subheader("Diagnóstico rápido")
-    st.write(
-        "- El modelo base con Random Forest alcanza ~" + f"{accuracy_test:.1%}" + 
-        ", con un gap de entrenamiento/prueba de " + f"{accuracy_train - accuracy_test:.1%}."
+    st.markdown("### Variables utilizadas")
+    st.info(
+        "El modelo trabaja con un perfil básico del cliente: datos de su edad, "
+        "actividad laboral, nivel de gasto y composición familiar."
     )
-    st.write(
-        "- El F1 Macro y la estabilidad de validación cruzada muestran si el comportamiento del modelo coincide con el resumen del análisis."    )
-    st.write(
-        "- En esta aplicación, el resumen escrito en `resumen.md` se acompaña con las mismas métricas centrales y los gráficos de `modelosGEM.ipynb`."
+
+    st.markdown("### Gráficos del modelo final")
+    selected_chart = st.selectbox(
+        "Seleccioná un gráfico para visualizar",
+        [
+            "Variables que más influyen en el modelo",
+            "Precisión por segmento",
+            "Matriz de confusión",
+            "Cantidad de clientes por segmento",
+            "Edad promedio por segmento",
+            "Puntuación de gasto por segmento",
+        ],
     )
+
+    if selected_chart == "Variables que más influyen en el modelo":
+        show_compact_chart(plot_feature_importance(rf, X.columns))
+    elif selected_chart == "Precisión por segmento":
+        show_compact_chart(plot_f1_by_segment(report, labels))
+    elif selected_chart == "Matriz de confusión":
+        show_compact_chart(plot_confusion_matrix(conf_mat, labels))
+    elif selected_chart == "Cantidad de clientes por segmento":
+        show_compact_chart(plot_segment_distribution(df))
+    elif selected_chart == "Edad promedio por segmento":
+        show_compact_chart(plot_age_by_segment(df))
+    else:
+        show_compact_chart(plot_spending_by_segment(df))
+
 
 if __name__ == "__main__":
     main()
